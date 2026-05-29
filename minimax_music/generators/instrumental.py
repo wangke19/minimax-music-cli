@@ -1,0 +1,38 @@
+from pathlib import Path
+
+from ..api.music import MusicClient
+from ..naming import generate_name
+from .base import BaseGenerator, GenerationResult
+
+
+class InstrumentalGenerator(BaseGenerator):
+    def generate(
+        self,
+        prompt: str,
+        output_dir: Path = Path("./mp3"),
+        duration: int = 300,
+        model: str = "music-2.6",
+        song_title: str | None = None,
+        **kwargs,
+    ) -> GenerationResult:
+        self._validate_prompt(prompt)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        name = generate_name(prompt, song_title=song_title, is_instrumental=True)
+        audio_path = output_dir / f"{name}.mp3"
+
+        result = self._music.generate(
+            prompt=prompt,
+            is_instrumental=True,
+            duration=duration,
+            model=model,
+        )
+
+        self._download_audio(result.audio_url, audio_path)
+
+        return GenerationResult(
+            audio_path=audio_path,
+            lyrics_path=None,
+            song_title=song_title,
+            duration_ms=result.duration_ms,
+        )

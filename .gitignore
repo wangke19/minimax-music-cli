@@ -1,0 +1,23 @@
+# Generated music files
+mp3/
+
+# Batch progress
+.batch_progress
+
+# Temp prompt files
+.prompts_instrumental.txt
+.prompts_vocal.txt
+/tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
