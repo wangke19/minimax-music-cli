@@ -23,6 +23,9 @@ from .generators.instrumental import InstrumentalGenerator
 from .generators.base import GenerationResult
 from .naming import generate_name, generate_name_with_llm
 from .prompts import format_prompt_for_lyrics
+from .evidence.recorder import Recorder
+from .evidence.types import Action, Actor
+from .report.markdown import generate_report
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -178,6 +181,11 @@ def run(argv: list[str] | None = None) -> None:
     music_client = MusicClient(api_key)
     lyrics_client = LyricsClient(api_key)
 
+    # Setup evidence recorder
+    output_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir = output_dir / "evidence"
+    recorder = Recorder(evidence_dir)
+
     # Warn if samples may exceed API concurrency limits
     tier = detect_account_tier(api_key)
     warning = check_concurrency_warning(tier, args.samples, args.samples)
@@ -185,21 +193,39 @@ def run(argv: list[str] | None = None) -> None:
         print(f"\n{warning}")
 
     try:
-        # Step 1: Generate lyrics once (shared across all samples)
+        # Step 1: Record human prompt
+        recorder.record(
+            action=Action.PROMPT_CREATE,
+            actor=Actor.HUMAN,
+            input_data={"prompt": prompt[:200], "instrumental": args.instrumental},
+        )
+
+        # Step 2: Generate lyrics once (shared across all samples)
         song_lyrics = ""
         song_title = None
 
         if args.instrumental:
-            # Instrumental: generate lyrics for reference
             lyrics_prompt = format_prompt_for_lyrics(prompt, duration_hint="纯音乐描述")
             lyrics_result = lyrics_client.generate(lyrics_prompt)
             song_lyrics = lyrics_result.lyrics
             song_title = lyrics_result.song_title
+            recorder.record(
+                action=Action.LYRICS_GENERATE,
+                actor=Actor.AI,
+                input_data={"prompt": lyrics_prompt[:100]},
+                output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
+            )
         elif args.use_lyrics_gen:
             lyrics_prompt = format_prompt_for_lyrics(prompt, duration_hint="约5分钟完整歌曲")
             lyrics_result = lyrics_client.generate(lyrics_prompt)
             song_lyrics = lyrics_result.lyrics
             song_title = lyrics_result.song_title
+            recorder.record(
+                action=Action.LYRICS_GENERATE,
+                actor=Actor.AI,
+                input_data={"prompt": lyrics_prompt[:100]},
+                output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
+            )
         else:
             song_lyrics = lyrics
 
@@ -259,6 +285,23 @@ def run(argv: list[str] | None = None) -> None:
             print(f"  Audio: {result.audio_path}")
             if result.duration_ms:
                 print(f"  Duration: {result.duration_ms / 1000:.1f}s")
+
+            recorder.record(
+                action=Action.MUSIC_GENERATE,
+                actor=Actor.AI,
+                input_data={"prompt": prompt[:100], "model": args.model},
+                output_data={"file": result.audio_path.name, "duration_ms": result.duration_ms},
+            )
+
+        # Generate copyright report
+        report_name = f"{name}{inst_tag}"
+        report_path = generate_report(evidence_dir, output_dir, report_name, prompt, args.instrumental)
+        recorder.record(
+            action=Action.REPORT_GENERATE,
+            actor=Actor.HUMAN_AI,
+            output_data={"report": report_path.name},
+        )
+        print(f"  Report: {report_path}")
 
         print(f"\n=== Success: {len(results)} sample(s) ===")
         for r in results:

@@ -11,6 +11,9 @@ from minimax_music.generators.instrumental import InstrumentalGenerator
 from minimax_music.generators.vocal import VocalGenerator
 from minimax_music.naming import generate_name, generate_name_with_llm
 from minimax_music.prompts import format_prompt_for_lyrics
+from minimax_music.evidence.recorder import Recorder
+from minimax_music.evidence.types import Action, Actor
+from minimax_music.report.markdown import generate_report
 
 
 def parse_args() -> argparse.Namespace:
@@ -46,6 +49,11 @@ def main():
     vocal_generator = VocalGenerator(music_client, lyrics_client)
     instrumental_generator = InstrumentalGenerator(music_client)
     manager = BatchManager(script_dir)
+
+    # Setup evidence recorder
+    output_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir = output_dir / "evidence"
+    recorder = Recorder(evidence_dir)
 
     # Read prompts
     lines = []
@@ -93,6 +101,13 @@ def main():
         is_inst = line.startswith("纯音乐,")
         prompt_text = line[len("纯音乐,"):] if is_inst else line
 
+        # Record human prompt
+        recorder.record(
+            action=Action.PROMPT_CREATE,
+            actor=Actor.HUMAN,
+            input_data={"line": i, "prompt": prompt_text[:100], "instrumental": is_inst},
+        )
+
         # Generate lyrics once per prompt
         song_lyrics = ""
         song_title = None
@@ -104,7 +119,13 @@ def main():
                 song_title = lr.song_title
             except Exception as e:
                 print(f"  Lyrics gen failed [{i}]: {e}")
-        else:
+            else:
+                recorder.record(
+                    action=Action.LYRICS_GENERATE,
+                    actor=Actor.AI,
+                    input_data={"line": i, "prompt": "instrumental"},
+                    output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
+                )
             try:
                 lp = format_prompt_for_lyrics(prompt_text, duration_hint="约5分钟完整歌曲")
                 lr = lyrics_client.generate(lp)
@@ -112,6 +133,13 @@ def main():
                 song_title = lr.song_title
             except Exception as e:
                 print(f"  Lyrics gen failed [{i}]: {e}")
+            else:
+                recorder.record(
+                    action=Action.LYRICS_GENERATE,
+                    actor=Actor.AI,
+                    input_data={"line": i, "prompt": "vocal"},
+                    output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
+                )
 
         if not song_lyrics:
             song_lyrics = "[Intro]\nLa la la"
@@ -171,6 +199,12 @@ def main():
                     song_title=name,
                     save_lyrics_file=False,
                 )
+            recorder.record(
+                action=Action.MUSIC_GENERATE,
+                actor=Actor.AI,
+                input_data={"prompt": prompt_text[:100]},
+                output_data={"file": result.audio_path.name, "duration_ms": result.duration_ms},
+            )
             return (i, line, True, result.audio_path.name, sample)
         except Exception as e:
             return (i, line, False, str(e), sample)
@@ -243,6 +277,34 @@ def main():
             manager.save(tasks[-1][0])
 
     manager.clear()
+
+    # Generate copyright reports for each unique base name
+    seen = set()
+    for task in tasks:
+        i, line, is_inst, prompt_text, name, sample, song_lyrics = task
+        # Derive base name: strip A/B suffix before inst tag
+        # name format: "baseA-音乐" or "baseA" or "base-音乐"
+        base = name
+        inst_tag = "-音乐" if is_inst else ""
+        if args.samples > 1:
+            for suffix in [chr(ord('A') + s) for s in range(args.samples)]:
+                tag = f"{suffix}{inst_tag}"
+                if base.endswith(tag):
+                    base = base[: -len(tag)] + inst_tag
+                    break
+        if base in seen:
+            continue
+        seen.add(base)
+        try:
+            report_path = generate_report(evidence_dir, output_dir, base, prompt_text, is_inst)
+            recorder.record(
+                action=Action.REPORT_GENERATE,
+                actor=Actor.HUMAN_AI,
+                output_data={"report": report_path.name},
+            )
+        except Exception as e:
+            print(f"  Report failed for {base}: {e}")
+
     count = len(list(output_dir.glob("*.mp3")))
     print(f"\n=== Done. Success: {success}, Failed: {failed}, Total files: {count} ===")
 
