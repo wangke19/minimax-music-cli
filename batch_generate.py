@@ -126,6 +126,7 @@ def main():
                     input_data={"line": i, "prompt": "instrumental"},
                     output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
                 )
+        else:
             try:
                 lp = format_prompt_for_lyrics(prompt_text, duration_hint="约5分钟完整歌曲")
                 lr = lyrics_client.generate(lp)
