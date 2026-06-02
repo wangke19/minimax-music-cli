@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from pathlib import Path
 
 import requests
 
@@ -54,7 +55,23 @@ def generate_name(
     if is_instrumental:
         return _instrumental_name(prompt)
 
-    return f"music_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    return _vocal_name(prompt)
+
+
+def _vocal_name(prompt: str) -> str:
+    parts = [p.strip() for p in re.split(r'[,，]', prompt) if p.strip()]
+    meaningful = [p for p in parts if len(p) > 1]
+
+    if len(meaningful) >= 3:
+        name = f"{meaningful[0]}_{meaningful[1]}_{meaningful[2]}"
+    elif len(meaningful) == 2:
+        name = f"{meaningful[0]}_{meaningful[1]}"
+    elif meaningful:
+        name = meaningful[0]
+    else:
+        return f"music_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+    return _sanitize(name)
 
 
 def _instrumental_name(prompt: str) -> str:
@@ -143,3 +160,39 @@ def _sanitize(name: str) -> str:
     while len(name.encode("utf-8")) > max_bytes:
         name = name[:-1]
     return name
+
+
+def resolve_filename_collision(base_name: str, output_dir: Path, extension: str = ".mp3") -> str:
+    """
+    Resolve filename collision by adding A, B, C, ... suffixes.
+
+    Args:
+        base_name: Base filename without extension
+        output_dir: Directory where file will be saved
+        extension: File extension including dot (default: ".mp3")
+
+    Returns:
+        Filename without extension, with suffix added if collision exists
+    """
+    output_dir = Path(output_dir)
+
+    # Check if base name already has a suffix pattern like _A, _B, etc.
+    # If so, we might be in a retry situation, so start fresh
+    check_name = base_name
+    suffix = ""
+
+    # First check without suffix
+    test_path = output_dir / f"{check_name}{extension}"
+    if not test_path.exists():
+        return base_name
+
+    # Try A, B, C, ... suffixes
+    for i in range(26):  # A-Z
+        suffix = chr(ord('A') + i)
+        test_path = output_dir / f"{check_name}_{suffix}{extension}"
+        if not test_path.exists():
+            return f"{check_name}_{suffix}"
+
+    # If all A-Z are taken, fall back to timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{check_name}_{timestamp}"

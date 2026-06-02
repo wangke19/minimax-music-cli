@@ -12,27 +12,50 @@ from minimax_music.generators.base import GenerationResult
 class TestBatchManager:
     def test_load_no_progress_file(self, tmp_path):
         mgr = BatchManager(tmp_path)
-        assert mgr.load() == 0
+        p = tmp_path / "prompts.txt"
+        p.write_text("pop\nrock\n")
+        assert mgr.load(p) == set()
 
     def test_save_and_load(self, tmp_path):
         mgr = BatchManager(tmp_path)
-        mgr.save(42)
-        assert mgr.load() == 42
+        p = tmp_path / "prompts.txt"
+        p.write_text("pop\nrock\n")
+        mgr.save(2, p)
+        assert mgr.load(p) == {2}
+
+    def test_save_multiple_and_load(self, tmp_path):
+        mgr = BatchManager(tmp_path)
+        p = tmp_path / "prompts.txt"
+        p.write_text("pop\nrock\njazz\n")
+        mgr.save(1, p)
+        mgr.save(3, p)
+        assert mgr.load(p) == {1, 3}
 
     def test_clear(self, tmp_path):
         mgr = BatchManager(tmp_path)
-        mgr.save(10)
-        mgr.clear()
-        assert mgr.load() == 0
+        p = tmp_path / "prompts.txt"
+        p.write_text("pop\nrock\n")
+        mgr.save(1, p)
+        mgr.clear(p)
+        assert mgr.load(p) == set()
 
     def test_clear_nonexistent(self, tmp_path):
         mgr = BatchManager(tmp_path)
-        mgr.clear()  # should not raise
+        p = tmp_path / "prompts.txt"
+        p.write_text("pop\n")
+        mgr.clear(p)
+        assert mgr.load(p) == set()
 
-    def test_load_corrupt_file(self, tmp_path):
+    def test_different_prompts_files_independent(self, tmp_path):
         mgr = BatchManager(tmp_path)
-        mgr._path.write_text("not a number")
-        assert mgr.load() == 0
+        p1 = tmp_path / "a.txt"
+        p2 = tmp_path / "b.txt"
+        p1.write_text("pop\nrock\n")
+        p2.write_text("jazz\nblues\n")
+        mgr.save(1, p1)
+        mgr.save(2, p2)
+        assert mgr.load(p1) == {1}
+        assert mgr.load(p2) == {2}
 
     def test_is_rate_limit_error_true(self):
         assert BatchManager.is_rate_limit_error("usage limit exceeded for today") is True
@@ -83,7 +106,7 @@ class TestBatchRunner:
     def test_resume_from_progress(self, tmp_path, prompts_file, mock_generator):
         out = tmp_path / "output"
         mgr = BatchManager(tmp_path)
-        mgr.save(1)  # skip first line
+        mgr.save(1, prompts_file)  # skip first line
 
         runner = BatchRunner(
             generator=mock_generator,
@@ -139,7 +162,7 @@ class TestBatchRunner:
         with pytest.raises(SystemExit):
             runner.run()
 
-        assert mgr.load() == 1  # progress saved
+        assert 1 in mgr.load(prompts_file)  # progress saved
 
     def test_empty_prompts_file(self, tmp_path):
         p = tmp_path / "empty.txt"
@@ -186,4 +209,4 @@ class TestBatchRunner:
         with patch("time.sleep"):
             runner.run()
 
-        assert mgr.load() == 0  # progress cleared
+        assert mgr.load(prompts_file) == set()  # progress cleared

@@ -2,11 +2,12 @@
 mp3/
 
 # Batch progress
-.batch_progress
+.batch_progress*
 
 # Temp prompt files
-.prompts_instrumental.txt
-.prompts_vocal.txt
+.prompts_*
+prompts_full.txt
+*.bak
 /tmp/
 
 # Python

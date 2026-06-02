@@ -44,15 +44,15 @@ class BatchRunner:
             print("No prompts to process")
             return BatchResult()
 
-        start = self._manager.load()
-        pending = [(i, line) for i, line in enumerate(lines, start=1) if i > start]
+        start = self._manager.load(self._prompts_file)
+        pending = [(i, line) for i, line in enumerate(lines, start=1) if i not in start]
 
         if not pending:
             print("All prompts already processed")
             return BatchResult(total=len(lines), success=len(lines))
 
-        if start > 0:
-            print(f"Resuming from line {start}")
+        if start:
+            print(f"Resuming from line(s): {sorted(start)}")
 
         result = BatchResult(total=len(lines))
 
@@ -61,7 +61,7 @@ class BatchRunner:
         else:
             result = self._run_concurrent(pending, result)
 
-        self._manager.clear()
+        self._manager.clear(self._prompts_file)
         return result
 
     def _run_sequential(self, pending: list, result: BatchResult) -> BatchResult:
@@ -73,7 +73,7 @@ class BatchRunner:
             else:
                 result.failed += 1
 
-            self._manager.save(i)
+            self._manager.save(i, self._prompts_file)
 
             if idx < len(pending) - 1:
                 delay = random.randint(*self._delay_range)
@@ -127,13 +127,14 @@ class BatchRunner:
                     print(f"{prefix} Done: {msg}")
                     with lock:
                         result.success += 1
+                    self._manager.save(i, self._prompts_file)
                 elif msg and msg.startswith("RATE_LIMIT:"):
                     print(f"{prefix} Rate limited: {msg[12:]}")
                     rate_limited = True
                     with lock:
                         result.failed += 1
                         result.errors.append(msg[12:])
-                    self._manager.save(i - 1)
+                    self._manager.save(i - 1, self._prompts_file)
                     print("=== Batch paused (rate limit) ===")
                     executor.shutdown(wait=False, cancel_futures=True)
                     sys.exit(0)
@@ -153,9 +154,8 @@ class BatchRunner:
         # Save progress to last completed
         if not rate_limited and pending:
             with lock:
-                self._manager.save(pending[-1][0])
-
-        return result
+                self._manager.save(pending[-1][0], self._prompts_file)
+            self._manager.clear(self._prompts_file)
 
     def _process_line(self, line: str, line_num: int) -> bool:
         try:
@@ -169,7 +169,7 @@ class BatchRunner:
             return True
         except RateLimitError as e:
             print(f"  Rate limited: {e}")
-            self._manager.save(line_num)
+            self._manager.save(line_num, self._prompts_file)
             print("=== Batch paused (rate limit) ===")
             sys.exit(0)
         except Exception as e:

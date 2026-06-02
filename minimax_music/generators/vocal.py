@@ -2,7 +2,7 @@ from pathlib import Path
 
 from ..api.lyrics import LyricsClient
 from ..api.music import MusicClient
-from ..naming import generate_name
+from ..naming import generate_name, resolve_filename_collision
 from ..prompts import format_prompt_for_lyrics
 from .base import BaseGenerator, GenerationResult
 
@@ -41,8 +41,11 @@ class VocalGenerator(BaseGenerator):
             lyrics = "[Intro]\nLa la la"
 
         name = generate_name(prompt, song_title=title, is_instrumental=False)
-        audio_path = output_dir / f"{name}.mp3"
-        lyrics_path = output_dir / f"{name}.txt"
+        # Resolve filename collision for audio
+        final_audio_name = resolve_filename_collision(name, output_dir, ".mp3")
+        audio_path = output_dir / f"{final_audio_name}.mp3"
+        # Use same name for lyrics (with .txt extension)
+        lyrics_path = output_dir / f"{final_audio_name}.txt"
 
         if save_lyrics_file:
             self._save_lyrics(lyrics, lyrics_path)

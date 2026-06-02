@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from ..api.music import MusicClient
-from ..naming import generate_name
+from ..naming import generate_name, resolve_filename_collision
 from .base import BaseGenerator, GenerationResult
 
 
@@ -19,7 +19,9 @@ class InstrumentalGenerator(BaseGenerator):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         name = generate_name(prompt, song_title=song_title, is_instrumental=True)
-        audio_path = output_dir / f"{name}.mp3"
+        # Resolve filename collision
+        final_name = resolve_filename_collision(name, output_dir, ".mp3")
+        audio_path = output_dir / f"{final_name}.mp3"
 
         result = self._music.generate(
             prompt=prompt,

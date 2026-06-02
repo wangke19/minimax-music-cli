@@ -21,6 +21,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("-c", "--concurrency", type=int, default=1, help="Concurrent workers (default: 1, max: 3 free / 20 paid)")
     p.add_argument("-s", "--samples", type=int, default=1, help="Samples per prompt (default: 1)")
     p.add_argument("--prompts", type=str, default=None, help="Custom prompts file path")
+    p.add_argument("--skip-lyrics", action="store_true", help="Skip lyrics API call for pure instrumental music")
     return p.parse_args()
 
 
@@ -82,9 +83,12 @@ def main():
             print("\n已取消")
             sys.exit(0)
 
-    start = manager.load()
-    if start > 0:
-        print(f"Resuming from line {start}")
+    start_set = manager.load(prompts_file)
+    if start_set:
+        print(f"Resuming: {len(start_set)} already completed, next line {max(start_set) + 1}")
+        completed_lines = start_set
+
+    start = max(start_set) if start_set else 0
 
     import random
     import time
@@ -112,20 +116,23 @@ def main():
         song_lyrics = ""
         song_title = None
         if is_inst:
-            try:
-                lp = format_prompt_for_lyrics(prompt_text, duration_hint="纯音乐描述")
-                lr = lyrics_client.generate(lp)
-                song_lyrics = lr.lyrics
-                song_title = lr.song_title
-            except Exception as e:
-                print(f"  Lyrics gen failed [{i}]: {e}")
+            if not args.skip_lyrics:
+                try:
+                    lp = format_prompt_for_lyrics(prompt_text, duration_hint="纯音乐描述")
+                    lr = lyrics_client.generate(lp)
+                    song_lyrics = lr.lyrics
+                    song_title = lr.song_title
+                except Exception as e:
+                    print(f"  Lyrics gen failed [{i}]: {e}")
+                else:
+                    recorder.record(
+                        action=Action.LYRICS_GENERATE,
+                        actor=Actor.AI,
+                        input_data={"line": i, "prompt": "instrumental"},
+                        output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
+                    )
             else:
-                recorder.record(
-                    action=Action.LYRICS_GENERATE,
-                    actor=Actor.AI,
-                    input_data={"line": i, "prompt": "instrumental"},
-                    output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
-                )
+                print(f"  [{i}] Skipping lyrics API (skip-lyrics mode)")
         else:
             try:
                 lp = format_prompt_for_lyrics(prompt_text, duration_hint="约5分钟完整歌曲")
@@ -226,12 +233,12 @@ def main():
                 failed += 1
                 if "usage limit exceeded" in (msg or "").lower():
                     print(f"  Rate limited: {msg}")
-                    manager.save(i)
+                    manager.save(i, prompts_file)
                     print("=== Batch paused (rate limit) ===")
                     sys.exit(0)
                 print(f"  Failed: {msg}")
 
-            manager.save(i)
+            manager.save(i, prompts_file)
 
             if idx < len(tasks) - 1:
                 delay = random.randint(1, 5)
@@ -265,7 +272,7 @@ def main():
                     rate_limited = True
                     with lock:
                         failed += 1
-                    manager.save(i - 1)
+                    manager.save(i - 1, prompts_file)
                     print("=== Batch paused (rate limit) ===")
                     executor.shutdown(wait=False, cancel_futures=True)
                     sys.exit(0)

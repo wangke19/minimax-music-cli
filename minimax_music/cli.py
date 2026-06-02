@@ -242,6 +242,14 @@ def run(argv: list[str] | None = None) -> None:
         # Multi-sample: baseA-音乐.mp3 / baseB-音乐.mp3 (inst), baseA.mp3 / baseB.mp3 (vocal)
         inst_tag = "-音乐" if args.instrumental else ""
 
+        # Avoid overwriting existing files: append suffix if collision
+        trial = name
+        idx = 2
+        while (output_dir / f"{trial}{inst_tag}.mp3").exists():
+            trial = f"{name}_{idx}"
+            idx += 1
+        name = trial
+
         # Step 4: Save lyrics once
         lyrics_file = f"{name}{inst_tag}.txt"
         if song_lyrics and song_lyrics != "[Intro]\nLa la la":
