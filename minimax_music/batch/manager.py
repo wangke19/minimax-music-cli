@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 
@@ -10,8 +11,9 @@ class BatchManager:
     def _progress_path(self, prompts_file: Path) -> Path:
         """Per-prompts-file progress file to allow resuming across different prompts files."""
         stem = prompts_file.stem.replace(" ", "_")[:30]
-        hash_suffix = hex(hash(prompts_file.read_bytes()) & 0xFFFF)[2:]
-        return self._base_dir / f".batch_progress_{stem}_{hash_suffix}"
+        # Use MD5 for stable hash across Python runs (hash() is randomized)
+        content_hash = hashlib.md5(prompts_file.read_bytes()).hexdigest()[:4]
+        return self._base_dir / f".batch_progress_{stem}_{content_hash}"
 
     def load(self, prompts_file: Path | None = None) -> set[int]:
         """Load set of completed line numbers (1-based). Falls back to legacy int."""
