@@ -9,52 +9,107 @@ from ..evidence.chain import Chain
 from ..evidence.types import Action, Actor, ChainEntry
 
 
+def _match_prompt(p1: str, p2: str) -> bool:
+    """Check if two prompt strings refer to the same song."""
+    if not p1 or not p2:
+        return False
+    # Exact match
+    if p1 == p2:
+        return True
+    # One is a prefix of the other
+    short, long = (p1, p2) if len(p1) <= len(p2) else (p2, p1)
+    if long.startswith(short):
+        return True
+    return False
+
+
 def filter_entries_for_song(
     song_name: str, entries: List[ChainEntry]
 ) -> List[ChainEntry]:
     """Filter chain entries belonging to a specific song.
 
     Strategy: find music_generate entries whose output file matches the song
-    name, then collect preceding prompt_create/lyrics_generate entries up to
-    the previous music_generate boundary, plus any following report_generate.
+    name, then match their prompt text against prompt_create/lyrics_generate
+    entries anywhere in the chain. Also collect report_generate entries
+    immediately following.
     """
-    # Build index of music_generate positions
-    mg_positions = []
+    # Step 1: Find music_generate entries for this song and collect their prompts
+    mg_indices = []
+    song_prompts: set[str] = set()
     for i, e in enumerate(entries):
         if e.action == Action.MUSIC_GENERATE:
             fname = (e.output or {}).get("file", "")
-            base = Path(fname).stem
-            mg_positions.append((i, base))
+            if Path(fname).stem == song_name:
+                mg_indices.append(i)
+                p = (e.input or {}).get("prompt", "")
+                if p:
+                    song_prompts.add(p.strip())
 
-    # Find all music_generate indices for this song
-    song_mg_indices = [i for i, base in mg_positions if base == song_name]
-    if not song_mg_indices:
+    if not mg_indices:
         return []
 
-    # Find all music_generate indices (for boundary detection)
-    all_mg_indices = {i for i, _ in mg_positions}
+    # Step 2: Match prompt_create and lyrics_generate by prompt text or line number
+    # Build a mapping from line numbers found in prompt_create -> entry index
+    prompt_by_text: dict[str, int] = {}
+    prompt_by_line: dict[str, int] = {}
+    lyrics_by_line: dict[str, int] = {}
+    lyrics_by_title: dict[str, int] = {}
 
-    collected_indices = set()
-    for mg_idx in song_mg_indices:
-        collected_indices.add(mg_idx)
-        # Walk backwards to collect preceding prompt_create / lyrics_generate
-        j = mg_idx - 1
-        while j >= 0 and entries[j].action in (
-            Action.PROMPT_CREATE,
-            Action.LYRICS_GENERATE,
-        ):
-            collected_indices.add(j)
-            j -= 1
-        # Walk forwards to collect report_generate entries
+    for i, e in enumerate(entries):
+        if e.action == Action.PROMPT_CREATE:
+            p = (e.input or {}).get("prompt", "")
+            if p:
+                prompt_by_text[p.strip()] = i
+            line = (e.input or {}).get("line")
+            if line is not None:
+                prompt_by_line[str(line)] = i
+        elif e.action == Action.LYRICS_GENERATE:
+            line = (e.input or {}).get("line")
+            if line is not None:
+                lyrics_by_line[str(line)] = i
+            title = (e.output or {}).get("title", "")
+            if title:
+                lyrics_by_title[title.strip()] = i
+
+    collected = set(mg_indices)
+
+    for mg_idx in mg_indices:
+        mg_prompt = (entries[mg_idx].input or {}).get("prompt", "").strip()
+        # Match by prompt text
+        if mg_prompt:
+            for pt, idx in prompt_by_text.items():
+                if _match_prompt(mg_prompt, pt):
+                    collected.add(idx)
+                    # Also grab the lyrics_generate that follows this prompt_create
+                    for j in range(idx + 1, mg_idx):
+                        if entries[j].action == Action.LYRICS_GENERATE:
+                            collected.add(j)
+                            break
+                        elif entries[j].action == Action.MUSIC_GENERATE:
+                            break
+
+        # Walk forward to collect report_generate
         k = mg_idx + 1
         while k < len(entries) and entries[k].action == Action.REPORT_GENERATE:
-            collected_indices.add(k)
+            collected.add(k)
             k += 1
-            # Also skip any music_download between report entries
-            if k < len(entries) and entries[k].action == Action.MUSIC_DOWNLOAD:
-                break
 
-    return [entries[i] for i in sorted(collected_indices)]
+    # If still no prompt_create found, try matching by lyrics title -> song name
+    if not any(entries[i].action == Action.PROMPT_CREATE for i in collected):
+        # The song name might derive from lyrics title
+        clean_name = song_name.replace("_", " ").rstrip("ABC23456789 ")
+        for title, idx in lyrics_by_title.items():
+            if clean_name.lower() in title.lower() or title.lower() in clean_name.lower():
+                collected.add(idx)
+                # Also get the prompt_create before this lyrics_generate
+                for j in range(idx - 1, -1, -1):
+                    if entries[j].action == Action.PROMPT_CREATE:
+                        collected.add(j)
+                        break
+                    elif entries[j].action == Action.MUSIC_GENERATE:
+                        break
+
+    return [entries[i] for i in sorted(collected)]
 
 
 def generate_report(
