@@ -165,6 +165,8 @@ def generate_report(
     _("")
     _(f"- **人类贡献估算：** {human_score:.1f}%")
     _("")
+    _("- **评估维度：** 提示词设计(30%) · 创作意图表达(25%) · 参数选择(15%) · 作品筛选(15%) · 证据链完整性(15%)")
+    _("")
     _("- **人类贡献来源：** 音乐风格构思、提示词编写、创作意图表达、作品筛选")
     _("")
     _("- **AI 贡献来源：** 歌词生成、旋律编曲、音频合成")
@@ -276,16 +278,115 @@ MIN_HUMAN_SCORE = 30.0
 
 
 def _calc_human_score(entries: List[ChainEntry]) -> float:
+    """Weighted multi-factor human contribution score.
+
+    Based on Beijing Internet Court (2023) Jing 0491 Min Chu 11279 precedent
+    and US Copyright Office 2025 report criteria:
+      1. Prompt design complexity & originality (30%)
+      2. Creative intent expression (style/mood/scene/vocal) (25%)
+      3. Parameter selection (duration/model) (15%)
+      4. Work curation (multi-sample selection) (15%)
+      5. Evidence chain completeness (15%)
+    """
     if not entries:
         return MIN_HUMAN_SCORE
-    human = sum(1 for e in entries if e.actor == Actor.HUMAN)
-    ai = sum(1 for e in entries if e.actor == Actor.AI)
-    human_ai = sum(1 for e in entries if e.actor == Actor.HUMAN_AI)
-    total = human + ai + human_ai * 0.5
-    if total == 0:
-        return MIN_HUMAN_SCORE
-    raw = human / total * 100
-    return max(raw, MIN_HUMAN_SCORE)
+
+    # 1. Prompt design (30%) — based on prompt length and detail
+    prompt_text = ""
+    for e in entries:
+        if e.action == Action.PROMPT_CREATE and e.input:
+            prompt_text = e.input.get("prompt", "")
+            if prompt_text:
+                break
+    if not prompt_text:
+        for e in entries:
+            if e.action == Action.MUSIC_GENERATE and e.input:
+                prompt_text = e.input.get("prompt", "")
+                if prompt_text:
+                    break
+    prompt_len = len(prompt_text.strip()) if prompt_text else 0
+    # Score: <20 chars=30, 20-50=50, 50-100=70, 100-200=85, >200=100
+    if prompt_len >= 200:
+        s1 = 100.0
+    elif prompt_len >= 100:
+        s1 = 85.0
+    elif prompt_len >= 50:
+        s1 = 70.0
+    elif prompt_len >= 20:
+        s1 = 50.0
+    else:
+        s1 = 30.0
+
+    # 2. Creative intent expression (25%) — count distinct creative dimensions
+    dimensions = 0
+    if prompt_text:
+        # Check for style/genre keywords
+        style_markers = ["流行", "民谣", "摇滚", "爵士", "电子", "古典", "蓝调",
+                         "R&B", "hiphop", "hip-hop", "说唱", "乡村", "Country",
+                         "Pop", "Rock", "Folk", "Jazz", "Blues", "Latin", "Trap",
+                         "folk", "rock", "pop", "singer", "songwriter"]
+        if any(m in prompt_text for m in style_markers):
+            dimensions += 1
+        # Check for mood/emotion
+        mood_markers = ["深情", "忧伤", "欢快", "慵懒", "热烈", "怀旧", "孤独",
+                        "浪漫", "治愈", "温暖", "melancholy", "romantic", "tender",
+                        "heartbreak", "euphoric", "nostalgic", "passionate", "hopeful",
+                        " introspective", "confessional", "defiant", "lonely", "festive"]
+        if any(m in prompt_text for m in mood_markers):
+            dimensions += 1
+        # Check for scene/imagery
+        scene_markers = ["夜", "雨", "海", "山", "街", "路", "城", "乡", "月",
+                         "星", "风", "花", "酒", "火", "窗", "beach", "motel",
+                         "highway", "cabin", "porch", "rooftop", "street", "rain"]
+        if any(m in prompt_text for m in scene_markers):
+            dimensions += 1
+        # Check for vocal/performer description
+        vocal_markers = ["男声", "女声", "男中音", "女中音", "合唱", "vocal",
+                         "male vocal", "female vocal", "duet", "chorus"]
+        if any(m in prompt_text for m in vocal_markers):
+            dimensions += 1
+    # 0 dims=25, 1=50, 2=70, 3=85, 4=100
+    s2 = 25.0 + dimensions * 18.75
+    s2 = min(s2, 100.0)
+
+    # 3. Parameter selection (15%) — evidence of human choosing model/duration
+    has_model = False
+    has_duration = False
+    for e in entries:
+        if e.action == Action.MUSIC_GENERATE and e.input:
+            if e.input.get("model"):
+                has_model = True
+            if e.input.get("duration") or e.output and e.output.get("duration_ms"):
+                has_duration = True
+    s3 = 40.0
+    if has_model:
+        s3 += 30.0
+    if has_duration:
+        s3 += 30.0
+
+    # 4. Work curation (15%) — multi-sample means human selected best version
+    # Check if there are A/B variants of this song in the entries
+    mg_count = sum(1 for e in entries if e.action == Action.MUSIC_GENERATE)
+    if mg_count >= 3:
+        s4 = 100.0
+    elif mg_count >= 2:
+        s4 = 80.0
+    else:
+        s4 = 50.0
+
+    # 5. Evidence chain completeness (15%) — more entries = better documentation
+    entry_count = len(entries)
+    if entry_count >= 4:
+        s5 = 100.0
+    elif entry_count >= 3:
+        s5 = 80.0
+    elif entry_count >= 2:
+        s5 = 60.0
+    else:
+        s5 = 30.0
+
+    raw = s1 * 0.30 + s2 * 0.25 + s3 * 0.15 + s4 * 0.15 + s5 * 0.15
+    return max(round(raw, 1), MIN_HUMAN_SCORE)
 
 
 def _format_input(input: dict) -> str:
