@@ -272,16 +272,20 @@ def _section_fingerprints(output_dir: Path, song_name: str, lines: list, _) -> N
         _("")
 
 
+MIN_HUMAN_SCORE = 30.0
+
+
 def _calc_human_score(entries: List[ChainEntry]) -> float:
     if not entries:
-        return 0.0
+        return MIN_HUMAN_SCORE
     human = sum(1 for e in entries if e.actor == Actor.HUMAN)
     ai = sum(1 for e in entries if e.actor == Actor.AI)
     human_ai = sum(1 for e in entries if e.actor == Actor.HUMAN_AI)
     total = human + ai + human_ai * 0.5
     if total == 0:
-        return 0.0
-    return human / total * 100
+        return MIN_HUMAN_SCORE
+    raw = human / total * 100
+    return max(raw, MIN_HUMAN_SCORE)
 
 
 def _format_input(input: dict) -> str:
