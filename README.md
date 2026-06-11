@@ -160,12 +160,11 @@ python3 batch_generate.py [选项]
 ### 批量报告管理
 
 ```bash
-# 重新生成全部版权报告
-python3 generate_all_reports.py
-
-# 补充缺失报告（仅处理无报告的歌曲）
+# 重新生成全部版权报告（自动打包为 mp3/版权报告.zip）
 python3 generate_all_reports.py
 ```
+
+生成完成后自动将所有 `*-版权报告.md` 打包为 `mp3/版权报告.zip`，可直接上传至微信视频号等平台的原创证明材料。
 
 ---
 

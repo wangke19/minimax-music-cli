@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import sys
+import zipfile
 from pathlib import Path
 
 # Add project root to path
@@ -231,6 +232,24 @@ def main():
         print("\nAll songs have copyright reports!")
     else:
         print(f"\nWARNING: {len(mp3_names) - report_count} songs still missing reports")
+
+    # Step 7: Package reports into zip
+    zip_reports(MP3_DIR)
+
+
+def zip_reports(mp3_dir: Path) -> None:
+    """Package all copyright reports into a zip file for platform upload."""
+    reports = sorted(mp3_dir.glob("*版权报告*"))
+    if not reports:
+        print("\nNo reports to zip")
+        return
+
+    zip_path = mp3_dir / "版权报告.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in reports:
+            zf.write(f, f.name)
+    size_mb = zip_path.stat().st_size / 1024 / 1024
+    print(f"\nPackaged {len(reports)} reports -> {zip_path} ({size_mb:.1f}MB)")
 
 
 if __name__ == "__main__":
