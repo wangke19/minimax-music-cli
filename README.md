@@ -53,6 +53,7 @@ minimax-music-cli/
 ├── tests/                   # 测试（147 tests）
 ├── main.py                  # 单曲生成入口
 ├── batch_generate.py        # 批处理入口
+├── generate_all_reports.py  # 批量重新生成版权报告
 ├── prompts_simple.txt       # 提示词库
 ├── requirements.txt
 └── mp3/                     # 输出目录（音频 + 歌词 + 证据链 + 版权报告）
@@ -133,12 +134,18 @@ python3 batch_generate.py [选项]
 
 ### 版权报告
 
-为每首作品生成 `{歌名}-版权报告.md`，包含：
+为每首作品生成 `{歌名}-版权报告.md`，用于平台（如微信视频号）原创证明，包含：
 - 创作意图（原始 prompt）
 - AI 参与度声明（人类贡献百分比）
-- 完整创作时间线
+- 该歌曲独立的创作过程时间线（自动从全局证据链中过滤）
 - 证据链哈希完整性校验结果
-- 文件 SHA256 指纹
+- 文件 SHA256 指纹（含文件大小）
+- 原创声明（人类+AI 协作创作说明）
+
+批量重新生成所有报告：
+```bash
+python3 generate_all_reports.py
+```
 
 ---
 
