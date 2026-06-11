@@ -173,7 +173,7 @@ def _section_producer_declaration(lines: list, _) -> None:
     _("---")
     _("")
     _(
-        "*本报告由 MiniMax Music CLI 自动生成，用于平台原创证明。*"
+        "*本报告由 [MiniMax Music CLI](https://github.com/wangke19/minimax-music-cli) 自动生成，用于平台原创证明。*"
     )
     _("")
 
