@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import sys
+import zipfile
 from pathlib import Path
 
 from minimax_music.api.lyrics import LyricsClient
@@ -27,6 +28,37 @@ def parse_args() -> argparse.Namespace:
 
 def _sample_suffix(idx: int, total: int) -> str:
     return chr(ord('A') + idx - 1) if total > 1 else ""
+
+
+def _generate_reports(tasks, evidence_dir, output_dir, samples, recorder=None):
+    """Generate copyright reports and ZIPs for completed tasks."""
+    seen = set()
+    for task in tasks:
+        i, line, is_inst, prompt_text, name, sample, song_lyrics = task
+        base = name
+        inst_tag = "-音乐" if is_inst else ""
+        if samples > 1:
+            for suffix in [chr(ord('A') + s) for s in range(samples)]:
+                tag = f"{suffix}{inst_tag}"
+                if base.endswith(tag):
+                    base = base[: -len(tag)] + inst_tag
+                    break
+        if base in seen:
+            continue
+        seen.add(base)
+        try:
+            report_path = generate_report(evidence_dir, output_dir, base, prompt_text, is_inst)
+            zip_path = output_dir / f"{base}-版权报告.zip"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.write(report_path, report_path.name)
+            if recorder:
+                recorder.record(
+                    action=Action.REPORT_GENERATE,
+                    actor=Actor.HUMAN_AI,
+                    output_data={"report": report_path.name, "zip": zip_path.name},
+                )
+        except Exception as e:
+            print(f"  Report failed for {base}: {e}")
 
 
 def main():
@@ -234,6 +266,7 @@ def main():
                 if "usage limit exceeded" in (msg or "").lower():
                     print(f"  Rate limited: {msg}")
                     manager.save(i, prompts_file)
+                    _generate_reports(tasks[:idx+1], evidence_dir, output_dir, args.samples)
                     print("=== Batch paused (rate limit) ===")
                     sys.exit(0)
                 print(f"  Failed: {msg}")
@@ -273,6 +306,7 @@ def main():
                     with lock:
                         failed += 1
                     manager.save(i - 1, prompts_file)
+                    _generate_reports(tasks, evidence_dir, output_dir, args.samples)
                     print("=== Batch paused (rate limit) ===")
                     executor.shutdown(wait=False, cancel_futures=True)
                     sys.exit(0)
@@ -286,32 +320,7 @@ def main():
 
     manager.clear()
 
-    # Generate copyright reports for each unique base name
-    seen = set()
-    for task in tasks:
-        i, line, is_inst, prompt_text, name, sample, song_lyrics = task
-        # Derive base name: strip A/B suffix before inst tag
-        # name format: "baseA-音乐" or "baseA" or "base-音乐"
-        base = name
-        inst_tag = "-音乐" if is_inst else ""
-        if args.samples > 1:
-            for suffix in [chr(ord('A') + s) for s in range(args.samples)]:
-                tag = f"{suffix}{inst_tag}"
-                if base.endswith(tag):
-                    base = base[: -len(tag)] + inst_tag
-                    break
-        if base in seen:
-            continue
-        seen.add(base)
-        try:
-            report_path = generate_report(evidence_dir, output_dir, base, prompt_text, is_inst)
-            recorder.record(
-                action=Action.REPORT_GENERATE,
-                actor=Actor.HUMAN_AI,
-                output_data={"report": report_path.name},
-            )
-        except Exception as e:
-            print(f"  Report failed for {base}: {e}")
+    _generate_reports(tasks, evidence_dir, output_dir, args.samples, recorder)
 
     count = len(list(output_dir.glob("*.mp3")))
     print(f"\n=== Done. Success: {success}, Failed: {failed}, Total files: {count} ===")
