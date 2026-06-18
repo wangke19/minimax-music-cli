@@ -15,6 +15,7 @@ from minimax_music.prompts import format_prompt_for_lyrics
 from minimax_music.evidence.recorder import Recorder
 from minimax_music.evidence.types import Action, Actor
 from minimax_music.report.markdown import generate_report
+from minimax_music.utils.clean_lyrics import clean_lyrics
 
 
 def parse_args() -> argparse.Namespace:
@@ -23,6 +24,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("-s", "--samples", type=int, default=1, help="Samples per prompt (default: 1)")
     p.add_argument("--prompts", type=str, default=None, help="Custom prompts file path")
     p.add_argument("--skip-lyrics", action="store_true", help="Skip lyrics API call for pure instrumental music")
+    p.add_argument("--clean-lyrics", action="store_true", default=True, help="Auto-generate pure lyrics without tags (default: True)")
     return p.parse_args()
 
 
@@ -197,10 +199,22 @@ def main():
         # Build naming: instrumental adds -音乐 tag
         inst_tag = "-音乐" if is_inst else ""
 
-        # Save lyrics once (no A/B suffix)
+        # Save lyrics with unique identifier (task index) to avoid overwrites
+        # when multiple prompts generate the same song name
         if song_lyrics and song_lyrics != "[Intro]\nLa la la":
-            lyrics_path = output_dir / f"{base_name}{inst_tag}.txt"
+            lyrics_path = output_dir / f"{base_name}_{i:04d}{inst_tag}.txt"
             lyrics_path.write_text(song_lyrics, encoding="utf-8")
+
+            # Also save pure lyrics without structural tags if --clean-lyrics enabled
+            if args.clean_lyrics:
+                pure_lyrics = clean_lyrics(song_lyrics)
+                pure_lyrics_path = output_dir / f"{base_name}_{i:04d}{inst_tag}_pure.txt"
+                pure_lyrics_path.write_text(pure_lyrics, encoding="utf-8")
+
+            # Record song-lyrics mapping for reference
+            mapping_path = output_dir / "song_lyrics_mapping.txt"
+            with open(mapping_path, 'a', encoding='utf-8') as f:
+                f.write(f"{base_name}{inst_tag} -> {base_name}_{i:04d}{inst_tag}.txt | {prompt_text[:80]}\n")
 
         # Create sample tasks with A/B suffix
         for s in range(1, args.samples + 1):
