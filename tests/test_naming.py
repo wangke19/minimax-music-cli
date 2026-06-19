@@ -112,3 +112,19 @@ class TestFilenameCollision:
         (tmp_path / "烟雨江南梦.mp3").write_text("fake")
         result = resolve_filename_collision("烟雨江南梦", tmp_path, ".mp3")
         assert result == "烟雨江南梦_A"
+
+    def test_used_names_prevents_collision_within_batch(self, tmp_path):
+        """Two prompts generating the same name in one batch get distinct names."""
+        used = set()
+        first = resolve_filename_collision("song", tmp_path, ".mp3", used)
+        used.add(first)
+        second = resolve_filename_collision("song", tmp_path, ".mp3", used)
+        assert first == "song"
+        assert second == "song_A"
+
+    def test_used_names_and_disk_collision_combined(self, tmp_path):
+        """Collisions from both disk and used_names are handled."""
+        (tmp_path / "song.mp3").write_text("fake")
+        used = {"song_A"}
+        result = resolve_filename_collision("song", tmp_path, ".mp3", used)
+        assert result == "song_B"

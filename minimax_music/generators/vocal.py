@@ -23,6 +23,7 @@ class VocalGenerator(BaseGenerator):
         no_format_prompt: bool = False,
         model: str = "music-2.6",
         save_lyrics_file: bool = True,
+        skip_collision_check: bool = False,
         **kwargs,
     ) -> GenerationResult:
         self._validate_prompt(prompt)
@@ -41,10 +42,11 @@ class VocalGenerator(BaseGenerator):
             lyrics = "[Intro]\nLa la la"
 
         name = generate_name(prompt, song_title=title, is_instrumental=False)
-        # Resolve filename collision for audio
-        final_audio_name = resolve_filename_collision(name, output_dir, ".mp3")
+        if skip_collision_check:
+            final_audio_name = name
+        else:
+            final_audio_name = resolve_filename_collision(name, output_dir, ".mp3")
         audio_path = output_dir / f"{final_audio_name}.mp3"
-        # Use same name for lyrics (with .txt extension)
         lyrics_path = output_dir / f"{final_audio_name}.txt"
 
         if save_lyrics_file:

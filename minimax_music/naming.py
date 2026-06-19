@@ -162,7 +162,12 @@ def _sanitize(name: str) -> str:
     return name
 
 
-def resolve_filename_collision(base_name: str, output_dir: Path, extension: str = ".mp3") -> str:
+def resolve_filename_collision(
+    base_name: str,
+    output_dir: Path,
+    extension: str = ".mp3",
+    used_names: set | None = None,
+) -> str:
     """
     Resolve filename collision by adding A, B, C, ... suffixes.
 
@@ -170,29 +175,30 @@ def resolve_filename_collision(base_name: str, output_dir: Path, extension: str 
         base_name: Base filename without extension
         output_dir: Directory where file will be saved
         extension: File extension including dot (default: ".mp3")
+        used_names: Optional set of names already claimed in this batch
 
     Returns:
         Filename without extension, with suffix added if collision exists
     """
     output_dir = Path(output_dir)
+    used_names = used_names or set()
 
-    # Check if base name already has a suffix pattern like _A, _B, etc.
-    # If so, we might be in a retry situation, so start fresh
-    check_name = base_name
-    suffix = ""
+    def is_taken(candidate: str) -> bool:
+        if candidate in used_names:
+            return True
+        return (output_dir / f"{candidate}{extension}").exists()
 
     # First check without suffix
-    test_path = output_dir / f"{check_name}{extension}"
-    if not test_path.exists():
+    if not is_taken(base_name):
         return base_name
 
     # Try A, B, C, ... suffixes
     for i in range(26):  # A-Z
         suffix = chr(ord('A') + i)
-        test_path = output_dir / f"{check_name}_{suffix}{extension}"
-        if not test_path.exists():
-            return f"{check_name}_{suffix}"
+        candidate = f"{base_name}_{suffix}"
+        if not is_taken(candidate):
+            return candidate
 
     # If all A-Z are taken, fall back to timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{check_name}_{timestamp}"
+    return f"{base_name}_{timestamp}"

@@ -121,6 +121,33 @@ class TestVocalGenerator:
             )
         assert result.audio_path.name == "custom_name.mp3"
 
+    def test_skip_collision_check_uses_name_as_is(self, mock_music_client, mock_lyrics_client, tmp_path):
+        """When skip_collision_check=True, existing file is overwritten (batch controls naming)."""
+        (tmp_path / "song.mp3").write_text("old")
+        gen = VocalGenerator(mock_music_client, mock_lyrics_client)
+        with patch.object(gen, "_download_audio"):
+            result = gen.generate(
+                prompt="test",
+                song_title="song",
+                output_dir=tmp_path,
+                save_lyrics_file=False,
+                skip_collision_check=True,
+            )
+        assert result.audio_path.name == "song.mp3"
+
+    def test_collision_check_adds_suffix_by_default(self, mock_music_client, mock_lyrics_client, tmp_path):
+        """Without skip_collision_check, existing file triggers suffix."""
+        (tmp_path / "song.mp3").write_text("old")
+        gen = VocalGenerator(mock_music_client, mock_lyrics_client)
+        with patch.object(gen, "_download_audio"):
+            result = gen.generate(
+                prompt="test",
+                song_title="song",
+                output_dir=tmp_path,
+                save_lyrics_file=False,
+            )
+        assert result.audio_path.name == "song_A.mp3"
+
 
 class TestInstrumentalGenerator:
     def test_generate(self, mock_music_client, tmp_path):

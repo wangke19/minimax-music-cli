@@ -10,7 +10,7 @@ from minimax_music.batch.manager import BatchManager
 from minimax_music.config import get_api_key, detect_account_tier, check_concurrency_warning
 from minimax_music.generators.instrumental import InstrumentalGenerator
 from minimax_music.generators.vocal import VocalGenerator
-from minimax_music.naming import generate_name, generate_name_with_llm
+from minimax_music.naming import generate_name, generate_name_with_llm, resolve_filename_collision
 from minimax_music.prompts import format_prompt_for_lyrics
 from minimax_music.evidence.recorder import Recorder
 from minimax_music.evidence.types import Action, Actor
@@ -37,20 +37,13 @@ def _generate_reports(tasks, evidence_dir, output_dir, samples, recorder=None):
     seen = set()
     for task in tasks:
         i, line, is_inst, prompt_text, name, sample, song_lyrics = task
-        base = name
-        inst_tag = "-音乐" if is_inst else ""
-        if samples > 1:
-            for suffix in [chr(ord('A') + s) for s in range(samples)]:
-                tag = f"{suffix}{inst_tag}"
-                if base.endswith(tag):
-                    base = base[: -len(tag)] + inst_tag
-                    break
-        if base in seen:
+        # name is already unique (collision-resolved), use it directly
+        if name in seen:
             continue
-        seen.add(base)
+        seen.add(name)
         try:
-            report_path = generate_report(evidence_dir, output_dir, base, prompt_text, is_inst)
-            zip_path = output_dir / f"{base}-版权报告.zip"
+            report_path = generate_report(evidence_dir, output_dir, name, prompt_text, is_inst)
+            zip_path = output_dir / f"{name}-版权报告.zip"
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.write(report_path, report_path.name)
             if recorder:
@@ -60,7 +53,7 @@ def _generate_reports(tasks, evidence_dir, output_dir, samples, recorder=None):
                     output_data={"report": report_path.name, "zip": zip_path.name},
                 )
         except Exception as e:
-            print(f"  Report failed for {base}: {e}")
+            print(f"  Report failed for {name}: {e}")
 
 
 def main():
@@ -133,6 +126,7 @@ def main():
 
     # Pre-process each prompt: generate lyrics + name once, then create A/B tasks
     tasks = []
+    used_names: set[str] = set()
     for i, line in enumerate(lines, start=1):
         if i <= start:
             continue
@@ -199,28 +193,35 @@ def main():
         # Build naming: instrumental adds -音乐 tag
         inst_tag = "-音乐" if is_inst else ""
 
-        # Save lyrics with unique identifier (task index) to avoid overwrites
-        # when multiple prompts generate the same song name
+        # Resolve filename collision upfront so lyrics, audio, and reports share one name
+        candidate = f"{base_name}{inst_tag}"
+        final_base = resolve_filename_collision(candidate, output_dir, ".mp3", used_names)
+        used_names.add(final_base)
+
+        # Save lyrics with the resolved name (matches audio filename)
         if song_lyrics and song_lyrics != "[Intro]\nLa la la":
-            lyrics_path = output_dir / f"{base_name}_{i:04d}{inst_tag}.txt"
+            lyrics_path = output_dir / f"{final_base}.txt"
             lyrics_path.write_text(song_lyrics, encoding="utf-8")
 
-            # Also save pure lyrics without structural tags if --clean-lyrics enabled
             if args.clean_lyrics:
                 pure_lyrics = clean_lyrics(song_lyrics)
-                pure_lyrics_path = output_dir / f"{base_name}_{i:04d}{inst_tag}_pure.txt"
+                pure_lyrics_path = output_dir / f"{final_base}_pure.txt"
                 pure_lyrics_path.write_text(pure_lyrics, encoding="utf-8")
 
-            # Record song-lyrics mapping for reference
             mapping_path = output_dir / "song_lyrics_mapping.txt"
             with open(mapping_path, 'a', encoding='utf-8') as f:
-                f.write(f"{base_name}{inst_tag} -> {base_name}_{i:04d}{inst_tag}.txt | {prompt_text[:80]}\n")
+                f.write(f"{final_base} -> {final_base}.txt | {prompt_text[:80]}\n")
 
-        # Create sample tasks with A/B suffix
+        # Create sample tasks; each sample resolves its own collision
         for s in range(1, args.samples + 1):
             suffix = _sample_suffix(s, args.samples)
-            name = f"{base_name}{suffix}{inst_tag}"
-            tasks.append((i, line, is_inst, prompt_text, name, s, song_lyrics))
+            if suffix:
+                sample_candidate = f"{base_name}_{suffix}{inst_tag}"
+                sample_name = resolve_filename_collision(sample_candidate, output_dir, ".mp3", used_names)
+            else:
+                sample_name = final_base
+            used_names.add(sample_name)
+            tasks.append((i, line, is_inst, prompt_text, sample_name, s, song_lyrics))
 
     if not tasks:
         print("All prompts already processed")
@@ -242,6 +243,7 @@ def main():
                     output_dir=output_dir,
                     no_format_prompt=True,
                     song_title=name,
+                    skip_collision_check=True,
                 )
             else:
                 result = vocal_generator.generate(
@@ -252,6 +254,7 @@ def main():
                     no_format_prompt=True,
                     song_title=name,
                     save_lyrics_file=False,
+                    skip_collision_check=True,
                 )
             recorder.record(
                 action=Action.MUSIC_GENERATE,
