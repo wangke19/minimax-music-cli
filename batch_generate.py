@@ -4,12 +4,20 @@ import sys
 import zipfile
 from pathlib import Path
 
+from minimax_music.api.anthropic_client import AnthropicClient
 from minimax_music.api.lyrics import LyricsClient
 from minimax_music.api.music import MusicClient
 from minimax_music.batch.manager import BatchManager
-from minimax_music.config import get_api_key, detect_account_tier, check_concurrency_warning
+from minimax_music.config import (
+    get_api_key,
+    get_anthropic_api_key,
+    detect_account_tier,
+    check_concurrency_warning,
+)
 from minimax_music.generators.instrumental import InstrumentalGenerator
 from minimax_music.generators.vocal import VocalGenerator
+from minimax_music.lyrics.claude_lyrics import ClaudeLyricsClient
+from minimax_music.lyrics.fallback import FallbackLyricsClient
 from minimax_music.naming import generate_name, generate_name_with_llm, resolve_filename_collision
 from minimax_music.prompts import format_prompt_for_lyrics
 from minimax_music.evidence.recorder import Recorder
@@ -73,7 +81,18 @@ def main():
         sys.exit(1)
 
     music_client = MusicClient(api_key)
-    lyrics_client = LyricsClient(api_key)
+
+    # Build lyrics client: MiniMax-only, or MiniMax→Claude fallback when ANTHROPIC_API_KEY is set
+    anthropic_key = get_anthropic_api_key()
+    if anthropic_key:
+        lyrics_client = FallbackLyricsClient(
+            primary=LyricsClient(api_key),
+            fallback=ClaudeLyricsClient(AnthropicClient(anthropic_key)),
+        )
+        print("Fallback enabled: MiniMax lyrics → Claude on failure")
+    else:
+        lyrics_client = LyricsClient(api_key)
+
     vocal_generator = VocalGenerator(music_client, lyrics_client)
     instrumental_generator = InstrumentalGenerator(music_client)
     manager = BatchManager(script_dir)
@@ -178,10 +197,16 @@ def main():
                 )
 
         if not song_lyrics:
-            song_lyrics = "[Intro]\nLa la la"
+            print(
+                f"  [{i}] 跳过：歌词生成失败（MiniMax + 备用均不可用），不生成空壳歌曲。"
+                f" prompt={prompt_text[:60]}",
+                flush=True,
+            )
+            manager.save(i, prompts_file)
+            continue
 
-        # Generate name: LLM > lyrics title > rule-based > fallback
-        base_name = generate_name_with_llm(api_key, prompt_text)
+        # Generate name: LLM (MiniMax > Claude) > lyrics title > rule-based > fallback
+        base_name = generate_name_with_llm(api_key, prompt_text, anthropic_key=anthropic_key)
         if not base_name and song_title:
             base_name = song_title
         if not base_name:
@@ -199,7 +224,7 @@ def main():
         used_names.add(final_base)
 
         # Save lyrics with the resolved name (matches audio filename)
-        if song_lyrics and song_lyrics != "[Intro]\nLa la la":
+        if song_lyrics:
             lyrics_path = output_dir / f"{final_base}.txt"
             lyrics_path.write_text(song_lyrics, encoding="utf-8")
 

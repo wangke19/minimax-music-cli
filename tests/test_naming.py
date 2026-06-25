@@ -1,6 +1,97 @@
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from minimax_music.naming import generate_name, resolve_filename_collision
+from minimax_music.naming import (
+    generate_name,
+    generate_name_with_llm,
+    resolve_filename_collision,
+)
+
+
+class TestGenerateNameWithLlmFallback:
+    """MiniMax → Claude fallback for generate_name_with_llm."""
+
+    def test_minimax_success_returns_minimax_name(self):
+        with patch("minimax_music.naming.requests.post") as mock_post:
+            mock_post.return_value.status_code = 200
+            mock_post.return_value.json.return_value = {
+                "choices": [{"message": {"content": "星河入梦"}}]
+            }
+            name = generate_name_with_llm("minimax-key", "梦幻流行")
+            assert name == "星河入梦"
+
+    def test_minimax_failure_with_no_anthropic_key_returns_none(self):
+        with patch("minimax_music.naming.requests.post") as mock_post:
+            mock_post.return_value.status_code = 500
+            name = generate_name_with_llm("minimax-key", "test", anthropic_key=None)
+            assert name is None
+
+    def test_minimax_failure_falls_back_to_anthropic(self):
+        with patch("minimax_music.naming.requests.post") as mock_post, \
+             patch("minimax_music.naming.AnthropicClient") as mock_anthropic_cls:
+            mock_post.return_value.status_code = 500
+            mock_client = MagicMock()
+            mock_client.generate_text.return_value = "Midnight Plea"
+            mock_anthropic_cls.return_value = mock_client
+
+            name = generate_name_with_llm(
+                "minimax-key", "English pop ballad", anthropic_key="anthropic-key"
+            )
+
+            assert name == "Midnight Plea"
+            mock_anthropic_cls.assert_called_once_with("anthropic-key")
+
+    def test_anthropic_failure_returns_none(self):
+        with patch("minimax_music.naming.requests.post") as mock_post, \
+             patch("minimax_music.naming.AnthropicClient") as mock_anthropic_cls:
+            mock_post.return_value.status_code = 500
+            mock_client = MagicMock()
+            mock_client.generate_text.side_effect = Exception("Claude error")
+            mock_anthropic_cls.return_value = mock_client
+
+            name = generate_name_with_llm(
+                "minimax-key", "test", anthropic_key="anthropic-key"
+            )
+            assert name is None
+
+    def test_anthropic_returns_empty_string_returns_none(self):
+        with patch("minimax_music.naming.requests.post") as mock_post, \
+             patch("minimax_music.naming.AnthropicClient") as mock_anthropic_cls:
+            mock_post.return_value.status_code = 500
+            mock_client = MagicMock()
+            mock_client.generate_text.return_value = "   "
+            mock_anthropic_cls.return_value = mock_client
+
+            name = generate_name_with_llm(
+                "minimax-key", "test", anthropic_key="anthropic-key"
+            )
+            assert name is None
+
+    def test_anthropic_returns_too_short_returns_none(self):
+        with patch("minimax_music.naming.requests.post") as mock_post, \
+             patch("minimax_music.naming.AnthropicClient") as mock_anthropic_cls:
+            mock_post.return_value.status_code = 500
+            mock_client = MagicMock()
+            mock_client.generate_text.return_value = "A"
+            mock_anthropic_cls.return_value = mock_client
+
+            name = generate_name_with_llm(
+                "minimax-key", "test", anthropic_key="anthropic-key"
+            )
+            assert name is None
+
+    def test_anthropic_strips_quotes_and_trailing_punctuation(self):
+        with patch("minimax_music.naming.requests.post") as mock_post, \
+             patch("minimax_music.naming.AnthropicClient") as mock_anthropic_cls:
+            mock_post.return_value.status_code = 500
+            mock_client = MagicMock()
+            mock_client.generate_text.return_value = '"Midnight Plea."'
+            mock_anthropic_cls.return_value = mock_client
+
+            name = generate_name_with_llm(
+                "minimax-key", "test", anthropic_key="anthropic-key"
+            )
+            assert name == "Midnight Plea"
 
 
 class TestVocalNaming:

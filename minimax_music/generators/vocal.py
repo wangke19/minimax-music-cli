@@ -39,6 +39,7 @@ class VocalGenerator(BaseGenerator):
             title = title or lyrics_result.song_title
 
         if not lyrics:
+            print("[vocal] Warning: empty lyrics, falling back to placeholder. Use FallbackLyricsClient to avoid this.")
             lyrics = "[Intro]\nLa la la"
 
         name = generate_name(prompt, song_title=title, is_instrumental=False)

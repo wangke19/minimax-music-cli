@@ -4,6 +4,9 @@ from pathlib import Path
 
 import requests
 
+from .api.anthropic_client import AnthropicClient
+from .config import ANTHROPIC_MODEL_DEFAULT
+
 _NAMING_SYSTEM_PROMPT = (
     "你是一个音乐命名专家。根据用户提供的音乐风格描述，生成一个简短的歌名。\n"
     "要求：\n"
@@ -12,8 +15,37 @@ _NAMING_SYSTEM_PROMPT = (
     "3. 只输出歌名，不要任何标点、序号或额外内容"
 )
 
+_ANTHROPIC_NAMING_SYSTEM_PROMPT = (
+    "You are a song titling expert. Given a song's style/scenario description, "
+    "produce a short, evocative title.\n\n"
+    "Rules:\n"
+    "1. Output 2-4 words in Title Case (e.g., \"Midnight Plea\", \"Fading Photographs\", \"Father's Waltz\").\n"
+    "2. Match the language of the description (English description → English title; Chinese → 中文歌名).\n"
+    "3. Evoke the core emotion or scenario; avoid generic words like \"Song\" or \"Music\".\n"
+    "4. Output ONLY the title. No quotes, no trailing punctuation, no explanation."
+)
 
-def generate_name_with_llm(api_key: str, prompt: str) -> str | None:
+
+def generate_name_with_llm(
+    api_key: str,
+    prompt: str,
+    anthropic_key: str | None = None,
+) -> str | None:
+    """Generate a song name via MiniMax; fall back to Anthropic Claude on failure.
+
+    Returns None only if both providers fail or both return empty/invalid output.
+    """
+    name = _generate_name_via_minimax(api_key, prompt)
+    if name:
+        return name
+
+    if not anthropic_key:
+        return None
+
+    return _generate_name_via_anthropic(anthropic_key, prompt)
+
+
+def _generate_name_via_minimax(api_key: str, prompt: str) -> str | None:
     try:
         resp = requests.post(
             "https://api.minimaxi.com/v1/chat/completions",
@@ -41,6 +73,27 @@ def generate_name_with_llm(api_key: str, prompt: str) -> str | None:
             return name
     except Exception:
         pass
+    return None
+
+
+def _generate_name_via_anthropic(api_key: str, prompt: str) -> str | None:
+    try:
+        client = AnthropicClient(api_key)
+        raw = client.generate_text(
+            system=_ANTHROPIC_NAMING_SYSTEM_PROMPT,
+            user=f"Description:\n{prompt[:500]}\n\nTitle:",
+            max_tokens=20,
+            temperature=0.7,
+            timeout=15,
+            model=ANTHROPIC_MODEL_DEFAULT,
+        )
+        name = raw.strip().strip('"\'""''《》【】')
+        name = name.splitlines()[0] if name else ""
+        name = name.strip().rstrip(".!?")
+        if name and 2 <= len(name) <= 40:
+            return name
+    except Exception as e:
+        print(f"[naming] Anthropic fallback failed: {e}", flush=True)
     return None
 
 

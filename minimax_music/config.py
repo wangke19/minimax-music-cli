@@ -4,6 +4,9 @@ API_BASE_URL = "https://api.minimaxi.com/v1"
 MUSIC_ENDPOINT = "/music_generation"
 LYRICS_ENDPOINT = "/lyrics_generation"
 
+ANTHROPIC_API_BASE_URL = "https://api.anthropic.com/v1"
+ANTHROPIC_MODEL_DEFAULT = "claude-sonnet-4-6"
+
 MODEL_MUSIC_2_6 = "music-2.6"
 MODEL_MUSIC_COVER = "music-cover"
 MODEL_MUSIC_2_6_FREE = "music-2.6-free"
@@ -28,6 +31,11 @@ def get_api_key() -> str:
     if not key:
         raise AuthError("MINIMAX_API_KEY environment variable is not set")
     return key
+
+
+def get_anthropic_api_key() -> str | None:
+    """Return Anthropic API key if set, else None. Used as fallback when MiniMax lyrics API is unavailable."""
+    return os.environ.get("ANTHROPIC_API_KEY") or None
 
 
 class MiniMaxError(Exception):
