@@ -9,18 +9,23 @@ from pathlib import Path
 from typing import Optional
 
 # Tags to remove (case-insensitive)
+# Matches [Verse], [Verse 1], [Verse 2], [Pre-Chorus], [Final Chorus], etc.
 LYRIC_TAGS_PATTERN = re.compile(
     r'^\[(?:'
     r'Intro|Outro|'
-    r'Verse|Verso|'
+    r'Verse(?:\s+\d+)?|Verso(?:\s+\d+)?|'
     r'Pre[-\s]?Chorus|Pre[-\s]?Refrain|'
     r'Chorus|Refrain|'
+    r'Final\s+Chorus|'
     r'Post[-\s]?Chorus|'
     r'Bridge|Coda|'
     r'Interlude|'
-    r'Solo|Instrumental|'
+    r'Solo|Guitar\s+Solo(?:\s+\w+)?|Instrumental|'
     r'Hook|'
-    r'Tag|End|Fade'
+    r'Tag|End|Fade|'
+    r'Spoken(?:\s+\w+)?|'
+    r'Build|Drop|Breakdown|'
+    r'Rap|Rap\s+\d+'
     r')\]\s*$',
     re.IGNORECASE | re.MULTILINE
 )
