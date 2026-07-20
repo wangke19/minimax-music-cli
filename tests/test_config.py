@@ -25,11 +25,13 @@ class TestConstants:
         assert API_BASE_URL == "https://api.minimaxi.com/v1"
 
     def test_models_list(self):
-        assert len(ALL_MODELS) == 4
+        assert len(ALL_MODELS) == 6
         assert "music-2.6" in ALL_MODELS
         assert "music-cover" in ALL_MODELS
         assert "music-2.6-free" in ALL_MODELS
         assert "music-cover-free" in ALL_MODELS
+        assert "music-3.0" in ALL_MODELS
+        assert "music-3.0-free" in ALL_MODELS
 
     def test_limits(self):
         assert PROMPT_MAX_CHARS == 2000

@@ -23,7 +23,6 @@ class MusicClient(BaseClient):
         prompt: str,
         lyrics: str = "",
         is_instrumental: bool = False,
-        duration: int = 300,
         model: str = MODEL_MUSIC_2_6,
         sample_rate: int = 44100,
         bitrate: int = 256000,
@@ -31,13 +30,17 @@ class MusicClient(BaseClient):
         output_format: str = "url",
         stream: bool = False,
         aigc_watermark: bool = False,
+        lyrics_optimizer: bool = False,
+        ref_audio_url: str | None = None,
+        audio_base64: str | None = None,
+        cover_feature_id: str | None = None,
     ) -> MusicResult:
         if sample_rate not in AUDIO_SAMPLE_RATES:
             raise ValueError(f"Invalid sample_rate. Must be one of: {AUDIO_SAMPLE_RATES}")
         if bitrate not in AUDIO_BITRATES:
             raise ValueError(f"Invalid bitrate. Must be one of: {AUDIO_BITRATES}")
 
-        payload = {
+        payload: dict = {
             "model": model,
             "prompt": prompt,
             "is_instrumental": is_instrumental,
@@ -51,6 +54,24 @@ class MusicClient(BaseClient):
 
         if not is_instrumental and lyrics:
             payload["lyrics"] = lyrics
+
+        if stream:
+            payload["stream"] = True
+
+        if aigc_watermark:
+            payload["aigc_watermark"] = True
+
+        if lyrics_optimizer:
+            payload["lyrics_optimizer"] = True
+
+        if ref_audio_url:
+            payload["audio_url"] = ref_audio_url
+
+        if audio_base64:
+            payload["audio_base64"] = audio_base64
+
+        if cover_feature_id:
+            payload["cover_feature_id"] = cover_feature_id
 
         result = self._post("/music_generation", payload, timeout=300)
 

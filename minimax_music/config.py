@@ -11,7 +11,9 @@ MODEL_MUSIC_2_6 = "music-2.6"
 MODEL_MUSIC_COVER = "music-cover"
 MODEL_MUSIC_2_6_FREE = "music-2.6-free"
 MODEL_MUSIC_COVER_FREE = "music-cover-free"
-ALL_MODELS = [MODEL_MUSIC_2_6, MODEL_MUSIC_COVER, MODEL_MUSIC_2_6_FREE, MODEL_MUSIC_COVER_FREE]
+MODEL_MUSIC_3_0 = "music-3.0"
+MODEL_MUSIC_3_0_FREE = "music-3.0-free"
+ALL_MODELS = [MODEL_MUSIC_2_6, MODEL_MUSIC_COVER, MODEL_MUSIC_2_6_FREE, MODEL_MUSIC_COVER_FREE, MODEL_MUSIC_3_0, MODEL_MUSIC_3_0_FREE]
 
 PROMPT_MAX_CHARS = 2000
 LYRICS_MAX_CHARS = 3500
@@ -56,6 +58,16 @@ class NetworkError(MiniMaxError):
 
 class DownloadError(MiniMaxError):
     pass
+
+
+# Error codes from MiniMax API spec (status_code field in base_resp)
+ERROR_CODE_SUCCESS = 0
+ERROR_CODE_RATE_LIMIT = 1002  # Rate limited, retry later
+ERROR_CODE_AUTH_FAILED = 1004  # Invalid API key
+ERROR_CODE_INSUFFICIENT_BALANCE = 1008  # Account balance insufficient
+ERROR_CODE_SENSITIVE_CONTENT = 1026  # Sensitive content detected
+ERROR_CODE_INVALID_PARAMS = 2013  # Invalid parameters
+ERROR_CODE_INVALID_API_KEY = 2049  # Invalid API key
 
 
 # Account tier rate limits for music API

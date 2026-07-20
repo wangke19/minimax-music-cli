@@ -26,6 +26,7 @@ from .prompts import format_prompt_for_lyrics
 from .evidence.recorder import Recorder
 from .evidence.types import Action, Actor
 from .report.markdown import generate_report
+from .report.verify import run_verify, format_summary
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -55,7 +56,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     # Model & audio settings
     p.add_argument("--model", default=MODEL_MUSIC_2_6, choices=ALL_MODELS)
-    p.add_argument("--duration", "-d", type=int, default=300, help="Duration in seconds (max 300)")
     p.add_argument("--sample-rate", type=int, default=44100, choices=AUDIO_SAMPLE_RATES)
     p.add_argument("--bitrate", type=int, default=256000, choices=AUDIO_BITRATES)
     p.add_argument("--format", default="mp3", choices=AUDIO_FORMATS)
@@ -65,6 +65,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--aigc-watermark", action="store_true", help="Add AIGC watermark")
     p.add_argument("--audio-url", default=None, help="Reference audio URL (for cover model)")
     p.add_argument("--audio-base64", default=None, help="Reference audio base64 (for cover model)")
+
+    # Verification
+    p.add_argument("--verify", action="store_true", help="Verify copyright report consistency (exits after verification)")
+    p.add_argument("--verify-songs", default=None, help="Comma-separated song names to verify (with --verify)")
 
     return p.parse_args(argv)
 
@@ -128,6 +132,15 @@ def _generate_sample_suffix(sample_idx: int, total_samples: int) -> str:
 def run(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
 
+    # Handle verification mode
+    if args.verify:
+        output_dir = Path(args.output)
+        song_names = args.verify_songs.split(",") if args.verify_songs else None
+        results = run_verify(output_dir=output_dir, song_names=song_names, verbose=False)
+        failed = sum(1 for r in results if not r.ok)
+        print(format_summary(results))
+        sys.exit(1 if failed else 0)
+
     # Build template variables
     variables = {}
     if args.vars:
@@ -154,11 +167,15 @@ def run(argv: list[str] | None = None) -> None:
         sys.exit(1)
 
     if "lyrics" not in params:
-        params["lyrics"] = "[Intro]\nLa la la"
+        params["lyrics"] = ""
 
     prompt = fill_template(params["prompt"], variables)
     lyrics = fill_template(params.get("lyrics", ""), variables) if params.get("lyrics") else ""
     user_name = fill_template(params.get("name", ""), variables) if params.get("name") else None
+
+    # --lyrics-optimizer: let music API auto-generate lyrics from prompt
+    if args.lyrics_optimizer and not lyrics:
+        lyrics = ""
 
     output_dir = Path(args.output)
 
@@ -201,20 +218,25 @@ def run(argv: list[str] | None = None) -> None:
         )
 
         # Step 2: Generate lyrics once (shared across all samples)
+        # Priority: user lyrics > LyricsClient API (--use-lyrics-gen) > MusicClient optimizer (--lyrics-optimizer)
         song_lyrics = ""
         song_title = None
 
         if args.instrumental:
-            lyrics_prompt = format_prompt_for_lyrics(prompt, duration_hint="纯音乐描述")
-            lyrics_result = lyrics_client.generate(lyrics_prompt)
-            song_lyrics = lyrics_result.lyrics
-            song_title = lyrics_result.song_title
-            recorder.record(
-                action=Action.LYRICS_GENERATE,
-                actor=Actor.AI,
-                input_data={"prompt": lyrics_prompt[:100]},
-                output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
-            )
+            if not args.lyrics_optimizer:
+                lyrics_prompt = format_prompt_for_lyrics(prompt, duration_hint="纯音乐描述")
+                lyrics_result = lyrics_client.generate(lyrics_prompt)
+                song_lyrics = lyrics_result.lyrics
+                song_title = lyrics_result.song_title
+                recorder.record(
+                    action=Action.LYRICS_GENERATE,
+                    actor=Actor.AI,
+                    input_data={"prompt": lyrics_prompt[:100]},
+                    output_data={"title": song_title, "lyrics_length": len(song_lyrics or "")},
+                )
+        elif args.lyrics_optimizer:
+            # Music API will auto-generate lyrics from prompt; no lyrics needed here
+            pass
         elif args.use_lyrics_gen:
             lyrics_prompt = format_prompt_for_lyrics(prompt, duration_hint="约5分钟完整歌曲")
             lyrics_result = lyrics_client.generate(lyrics_prompt)
@@ -229,7 +251,8 @@ def run(argv: list[str] | None = None) -> None:
         else:
             song_lyrics = lyrics
 
-        if not song_lyrics:
+        # Fallback placeholder for instrumental mode without optimizer
+        if args.instrumental and not song_lyrics and not args.lyrics_optimizer:
             song_lyrics = "[Intro]\nLa la la"
 
         # Step 2: Determine base name
@@ -271,9 +294,9 @@ def run(argv: list[str] | None = None) -> None:
                 result = generator.generate(
                     prompt=prompt,
                     output_dir=output_dir,
-                    duration=args.duration,
                     model=args.model,
                     song_title=sample_name,
+                    aigc_watermark=args.aigc_watermark,
                 )
             else:
                 generator = VocalGenerator(music_client, lyrics_client)
@@ -283,10 +306,13 @@ def run(argv: list[str] | None = None) -> None:
                     user_lyrics=song_lyrics,
                     song_title=sample_name,
                     output_dir=output_dir,
-                    duration=args.duration,
                     no_format_prompt=args.no_format_prompt,
                     model=args.model,
                     save_lyrics_file=(args.samples == 1),
+                    lyrics_optimizer=args.lyrics_optimizer,
+                    ref_audio_url=args.audio_url,
+                    audio_base64=args.audio_base64,
+                    aigc_watermark=args.aigc_watermark,
                 )
 
             results.append(result)

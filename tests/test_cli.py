@@ -38,14 +38,6 @@ class TestParseArgs:
         args = parse_args(["-p", "test", "--model", "music-cover"])
         assert args.model == "music-cover"
 
-    def test_default_duration(self):
-        args = parse_args(["-p", "test"])
-        assert args.duration == 300
-
-    def test_custom_duration(self):
-        args = parse_args(["-p", "test", "-d", "120"])
-        assert args.duration == 120
-
     def test_audio_settings(self):
         args = parse_args(["-p", "test", "--sample-rate", "32000", "--bitrate", "128000"])
         assert args.sample_rate == 32000

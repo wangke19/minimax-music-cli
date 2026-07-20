@@ -10,10 +10,10 @@ class InstrumentalGenerator(BaseGenerator):
         self,
         prompt: str,
         output_dir: Path = Path("./mp3"),
-        duration: int = 300,
-        model: str = "music-2.6",
+        model: str = "music-3.0",
         song_title: str | None = None,
         skip_collision_check: bool = False,
+        aigc_watermark: bool = False,
         **kwargs,
     ) -> GenerationResult:
         self._validate_prompt(prompt)
@@ -29,8 +29,8 @@ class InstrumentalGenerator(BaseGenerator):
         result = self._music.generate(
             prompt=prompt,
             is_instrumental=True,
-            duration=duration,
             model=model,
+            aigc_watermark=aigc_watermark,
         )
 
         self._download_audio(result.audio_url, audio_path)

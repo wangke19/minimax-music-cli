@@ -19,11 +19,15 @@ class VocalGenerator(BaseGenerator):
         user_lyrics: str = "",
         song_title: str | None = None,
         output_dir: Path = Path("./mp3"),
-        duration: int = 300,
         no_format_prompt: bool = False,
-        model: str = "music-2.6",
+        model: str = "music-3.0",
         save_lyrics_file: bool = True,
         skip_collision_check: bool = False,
+        lyrics_optimizer: bool = False,
+        ref_audio_url: str | None = None,
+        audio_base64: str | None = None,
+        cover_feature_id: str | None = None,
+        aigc_watermark: bool = False,
         **kwargs,
     ) -> GenerationResult:
         self._validate_prompt(prompt)
@@ -58,8 +62,12 @@ class VocalGenerator(BaseGenerator):
             prompt=final_prompt,
             lyrics=lyrics,
             is_instrumental=False,
-            duration=duration,
             model=model,
+            lyrics_optimizer=lyrics_optimizer,
+            ref_audio_url=ref_audio_url,
+            audio_base64=audio_base64,
+            cover_feature_id=cover_feature_id,
+            aigc_watermark=aigc_watermark,
         )
 
         self._download_audio(result.audio_url, audio_path)
